@@ -1,10 +1,10 @@
 from flask import Flask, request, jsonify
 import sympy as sp
 import numpy as np
-from flask_cors import CORS  # Importa flask-cors
+from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Habilita CORS para todas las rutas
+CORS(app)
 
 @app.route('/solve-ode', methods=['POST'])
 def solve_ode():
@@ -16,9 +16,11 @@ def solve_ode():
     if not equation_str:
         return jsonify({"error": "No se ha proporcionado la ecuación diferencial"}), 400
 
-    conditions = data.get("conditions", {})  # Ej: {"y0": "1", "yprime0": "0"}
+    # Si no se proporcionan condiciones, asignamos una condición por defecto: y(0)=1
+    conditions = data.get("conditions", {})
+    if not conditions:
+        conditions = {"y0": "1"}
 
-    # Obtener parámetros numéricos para la generación de puntos
     try:
         x0_val = float(data.get("x0", 0))
         xEnd_val = float(data.get("xEnd", 5))
@@ -26,11 +28,9 @@ def solve_ode():
     except Exception as e:
         return jsonify({"error": "Error al interpretar los parámetros numéricos", "detail": str(e)}), 400
 
-    # Definir la variable independiente y la función dependiente
     t = sp.symbols('t')
     y = sp.Function('y')(t)
 
-    # Diccionario de locales para sympify
     local_dict = {
         "diff": sp.diff,
         "y": y,
@@ -38,11 +38,9 @@ def solve_ode():
     }
 
     try:
-        # Verificar que la ecuación incluya "="
         if "=" not in equation_str:
             raise ValueError("La ecuación debe contener el signo '=' para separar ambos lados.")
         lhs, rhs = equation_str.split("=")
-        # Reemplazar notaciones de derivada
         lhs_processed = lhs.replace("y''", "diff(y, t, t)").replace("y'", "diff(y, t)")
         lhs_expr = sp.sympify(lhs_processed, locals=local_dict)
         rhs_expr = sp.sympify(rhs, locals=local_dict)
@@ -75,13 +73,12 @@ def solve_ode():
     except Exception as e:
         return jsonify({"error": "Error al resolver la ecuación", "detail": str(e)}), 500
 
-    # Extraer la expresión de la solución y generar puntos numéricos
     try:
-        # Se asume que la solución es de la forma y(t) = <expresión>
         sol_expr = solution.rhs
         sol_func = sp.lambdify(t, sol_expr, modules=['numpy'])
         x_vals = np.arange(x0_val, xEnd_val + h_val, h_val)
-        points = [{"x": float(x), "y": float(sol_func(x))} for x in x_vals]
+        points = {"x": [float(x) for x in x_vals],
+                  "y": [float(sol_func(x)) for x in x_vals]}
     except Exception as e:
         return jsonify({"error": "Error al generar puntos numéricos de la solución", "detail": str(e)}), 500
 
@@ -89,7 +86,7 @@ def solve_ode():
     response = {
         "solution": solution_str,
         "method": used_method,
-        "points": points  # Puntos numéricos de la solución exacta
+        "points": points
     }
     return jsonify(response)
 
